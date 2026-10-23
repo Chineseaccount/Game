@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Wave Rider - 水墨水上摩托竞速</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1628; font-family: 'Georgia', 'KaiTi', serif; }
+  #game-canvas { width: 100%; height: 100%; display: block; }
+
+  /* ===== 水墨风格 HUD ===== */
+  .ui-panel {
+    background: rgba(255, 255, 255, 0.85);
+    border: 3px solid #1a1a1a;
+    border-radius: 8px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,0.3);
+    padding: 10px 14px;
+    color: #1a1a1a;
+  }
+
+  #hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+  }
+
+  /* 左上：速度表 + 增压条 */
+  #speed-panel {
+    position: absolute; top: 20px; left: 20px;
+    width: 180px;
+  }
+  #speed-value {
+    font-size: 42px; font-weight: bold; line-height: 1;
+    color: #1a1a1a; text-shadow: 2px 2px 0 rgba(0,0,0,0.15);
+  }
+  #speed-unit { font-size: 14px; color: #555; }
+  #boost-bar-bg {
+    margin-top: 8px; height: 14px;
+    background: #ddd; border: 2px solid #1a1a1a; border-radius: 7px;
+    overflow: hidden;
+  }
+  #boost-bar {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #00d4ff, #0066ff);
+    transition: width 0.1s;
+  }
+  #boost-label { font-size: 12px; margin-top: 4px; color: #333; }
+
+  /* 右上：小地图 + 排名 */
+  #minimap-panel {
+    position: absolute; top: 20px; right: 20px;
+    width: 200px; padding: 8px;
+  }
+  #minimap {
+    width: 180px; height: 180px;
+    background: #e8f4f8; border: 2px solid #1a1a1a; border-radius: 4px;
+    display: block;
+  }
+  #rank-panel {
+    margin-top: 8px; font-size: 14px; line-height: 1.6;
+  }
+  #rank-title { font-weight: bold; border-bottom: 2px solid #1a1a1a; margin-bottom: 4px; }
+  .rank-row { display: flex; justify-content: space-between; }
+  .rank-row.me { color: #0066ff; font-weight: bold; }
+
+  /* 左下：圈数 */
+  #lap-panel {
+    position: absolute; bottom: 20px; left: 20px;
+    font-size: 18px;
+  }
+  #lap-value { font-size: 28px; font-weight: bold; }
+
+  /* 中下：操作提示 */
+  #controls-hint {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; color: rgba(255,255,255,0.8);
+    text-shadow: 1px 1px 2px #000;
+    text-align: center;
+  }
+
+  /* ===== 倒计时 / 开始界面 ===== */
+  #countdown-overlay, #start-overlay, #finish-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(10, 22, 40, 0.7);
+    z-index: 100; pointer-events: auto;
+  }
+  #countdown-number {
+    font-size: 180px; font-weight: bold; color: #fff;
+    text-shadow: 0 0 40px rgba(0, 200, 255, 0.8), 4px 4px 0 #000;
+    animation: pulse 0.5s ease;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  #game-title {
+    font-size: 72px; color: #fff; font-weight: bold;
+    text-shadow: 4px 4px 0 #000, 0 0 60px rgba(0,200,255,0.6);
+    letter-spacing: 4px;
+  }
+  #game-subtitle {
+    font-size: 20px; color: #aaddff; margin-top: 10px; letter-spacing: 8px;
+  }
+  #start-btn, #restart-btn {
+    margin-top: 40px; padding: 16px 60px;
+    font-size: 24px; font-family: inherit;
+    background: #0066ff; color: #fff;
+    border: 4px solid #1a1a1a; border-radius: 8px;
+    cursor: pointer; box-shadow: 4px 4px 0 #1a1a1a;
+    transition: transform 0.1s;
+  }
+  #start-btn:hover, #restart-btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 #1a1a1a; }
+  #start-btn:active, #restart-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 #1a1a1a; }
+
+  /* 结算界面 */
+  #finish-title {
+    font-size: 60px; color: #ffdd00; font-weight: bold;
+    text-shadow: 3px 3px 0 #000;
+  }
+  #finish-time {
+    font-size: 32px; color: #fff; margin-top: 16px;
+  }
+  #final-rank {
+    font-size: 24px; color: #aaddff; margin-top: 8px;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="speed-panel" class="ui-panel">
+    <div><span id="speed-value">0</span> <span id="speed-unit">km/h</span></div>
+    <div id="boost-bar-bg"><div id="boost-bar"></div></div>
+    <div id="boost-label">涡轮增压 (Shift)</div>
+  </div>
+
+  <div id="minimap-panel" class="ui-panel">
+    <canvas id="minimap" width="180" height="180"></canvas>
+    <div id="rank-panel">
+      <div id="rank-title">实时排名</div>
+      <div id="rank-list"></div>
+    </div>
+  </div>
+
+  <div id="lap-panel" class="ui-panel">
+    <div>当前圈数</div>
+    <div id="lap-value">1 / 3</div>
+  </div>
+
+  <div id="controls-hint">
+    W/↑ 加速 &nbsp; S/↓ 刹车 &nbsp; A D/← → 转向 &nbsp; Shift 增压 &nbsp; 空格 紧急刹车
+  </div>
+</div>
+
+<div id="start-overlay">
+  <div id="game-title">WAVE RIDER</div>
+  <div id="game-subtitle">水 墨 水 上 摩 托 竞 速</div>
+  <button id="start-btn">开始比赛</button>
+</div>
+
+<div id="countdown-overlay" class="hidden">
+  <div id="countdown-number">3</div>
+</div>
+
+<div id="finish-overlay" class="hidden">
+  <div id="finish-title">比赛结束</div>
+  <div id="finish-time"></div>
+  <div id="final-rank"></div>
+  <button id="restart-btn">重新开始</button>
+</div>
+
+<script type="module">
+// ============================================================
+//  Wave Rider - 水墨水上摩托竞速
+//  单文件 Three.js r160 游戏
+// ============================================================
+
+// ---------- Three.js CDN 三线回退 ----------
+const CDN_LIST = [
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://unpkg.com/three@0.160.0/build/three.module.js',
+  'https://esm.sh/three@0.160.0'
+];
+
+async function loadThree() {
+  for (const url of CDN_LIST) {
+    try {
+      const mod = await import(url);
+      console.log('Three.js loaded from:', url);
+      return mod;
+    } catch (e) {
+      console.warn('Failed to load from', url, e);
+    }
+  }
+  throw new Error('All Three.js CDN sources failed');
+}
+
+// ---------- 启动 ----------
+const THREE = await loadThree();
+initGame(THREE);
+
+function initGame(THREE) {
+
+// ============================================================
+//  基础设置
+// ============================================================
+const canvas = document.getElementById('game-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = false;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0xa8d8e8, 80, 400);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 8, -15);
+
+// 光照
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(50, 100, 30);
+scene.add(dirLight);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================
+//  程序化海洋 - GPU 着色器
+// ============================================================
+const oceanUniforms = {
+  uTime: { value: 0 },
+  uBigWavesAmp: { value: 1.2 },
+  uBigWavesFreq: { value: 0.04 },
+  uBigWavesSpeed: { value: 0.8 },
+  uSmallWavesAmp: { value: 0.3 },
+  uColorShallow: { value: new THREE.Color(0x20b2aa) },
+  uColorDeep: { value: new THREE.Color(0x0a4d8c) },
+  uColorFoam: { value: new THREE.Color(0xffffff) },
+  uFogColor: { value: new THREE.Color(0xa8d8e8) },
+  uFogNear: { value: 80.0 },
+  uFogFar: { value: 400.0 }
+};
+
+const oceanGeometry = new THREE.PlaneGeometry(800, 800, 128, 128);
+oceanGeometry.rotateX(-Math.PI / 2);
+
+const oceanMaterial = new THREE.ShaderMaterial({
+  uniforms: oceanUniforms,
+  vertexShader: `
+    uniform float uTime;
+    uniform float uBigWavesAmp;
+    uniform float uBigWavesFreq;
+    uniform float uBigWavesSpeed;
+    uniform float uSmallWavesAmp;
+
+    varying vec3 vWorldPos;
+    varying float vWaveHeight;
+    varying vec3 vNormal;
+
+    // 简易噪声
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+                 mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+    }
+
+    void main() {
+      vec3 pos = position;
+      float t = uTime * uBigWavesSpeed;
+
+      // 大尺度涌浪 - 3个方向叠加
+      float h = 0.0;
+      h += sin(pos.x * uBigWavesFreq + t) * uBigWavesAmp;
+      h += cos(pos.z * uBigWavesFreq * 0.8 + t * 1.2) * uBigWavesAmp * 0.7;
+      h += sin((pos.x + pos.z) * uBigWavesFreq * 0.5 + t * 0.6) * uBigWavesAmp * 0.5;
+
+      // 细碎波纹
+      h += noise(pos.xz * 0.5 + t * 0.5) * uSmallWavesAmp;
+      h += sin(pos.x * 2.5 + t * 3.0) * uSmallWavesAmp * 0.3;
+      h += cos(pos.z * 3.0 + t * 2.0) * uSmallWavesAmp * 0.2;
+
+      pos.y += h;
+      vWaveHeight = h;
+
+      // 法线近似
+      float eps = 0.5;
+      float hx = 0.0;
+      hx += sin((pos.x + eps) * uBigWavesFreq + t) * uBigWavesAmp;
+      hx += cos(pos.z * uBigWavesFreq * 0.8 + t * 1.2) * uBigWavesAmp * 0.7;
+      hx += sin(((pos.x + eps) + pos.z) * uBigWavesFreq * 0.5 + t * 0.6) * uBigWavesAmp * 0.5;
+      hx += noise((pos.x + eps) * 0.5 + pos.z * 0.5 + t * 0.5) * uSmallWavesAmp;
+
+      float hz = 0.0;
+      hz += sin(pos.x * uBigWavesFreq + t) * uBigWavesAmp;
+      hz += cos((pos.z + eps) * uBigWavesFreq * 0.8 + t * 1.2) * uBigWavesAmp * 0.7;
+      hz += sin((pos.x + (pos.z + eps)) * uBigWavesFreq * 0.5 + t * 0.6) * uBigWavesAmp * 0.5;
+      hz += noise(pos.x * 0.5 + (pos.z + eps) * 0.5 + t * 0.5) * uSmallWavesAmp;
+
+      vNormal = normalize(vec3(h - hx, eps, h - hz));
+
+      vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+      vWorldPos = worldPos.xyz;
+      gl_Position = projectionMatrix * viewMatrix * worldPos;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uColorShallow;
+    uniform vec3 uColorDeep;
+    uniform vec3 uColorFoam;
+    uniform vec3 uFogColor;
+    uniform float uFogNear;
+    uniform float uFogFar;
+    uniform float uTime;
+
+    varying vec3 vWorldPos;
+    varying float vWaveHeight;
+    varying vec3 vNormal;
+
+    void main() {
+      // 深度颜色混合
+      float depthFactor = clamp(vWaveHeight * 0.3 + 0.5, 0.0, 1.0);
+      vec3 color = mix(uColorDeep, uColorShallow, depthFactor);
+
+      // 浪尖泡沫
+      float foam = smoothstep(1.0, 2.2, vWaveHeight);
+      color = mix(color, uColorFoam, foam * 0.8);
+
+      // 水墨晕染感 - 叠加轻微噪点纹理
+      float inkNoise = fract(sin(dot(vWorldPos.xz, vec2(12.9898, 78.233))) * 43758.5453);
+      color += inkNoise * 0.03;
+
+      // 菲涅尔高光
+      vec3 viewDir = normalize(cameraPosition - vWorldPos);
+      float fresnel = pow(1.0 - max(dot(viewDir, vNormal), 0.0), 3.0);
+      color += fresnel * 0.2;
+
+      // 雾
+      float dist = length(cameraPosition - vWorldPos);
+      float fogFactor = smoothstep(uFogNear, uFogFar, dist);
+      color = mix(color, uFogColor, fogFactor);
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `
+});
+
+const ocean = new THREE.Mesh(oceanGeometry, oceanMaterial);
+scene.add(ocean);
+
+// ============================================================
+//  赛道定义 - 闭环路径
+// ============================================================
+const TRACK_POINTS = [
+  new THREE.Vector3(0, 0, 60),
+  new THREE.Vector3(60, 0, 40),
+  new THREE.Vector3(100, 0, -20),
+  new THREE.Vector3(80, 0, -80),
+  new THREE.Vector3(20, 0, -100),
+  new THREE.Vector3(-50, 0, -80),
+  new THREE.Vector3(-90, 0, -20),
+  new THREE.Vector3(-70, 0, 50),
+  new THREE.Vector3(-20, 0, 80),
+];
+const TRACK_WIDTH = 24;
+const TOTAL_LAPS = 3;
+
+// 用 CatmullRom 生成平滑曲线
+const trackCurve = new THREE.CatmullRomCurve3(TRACK_POINTS, true, 'catmullrom', 0.5);
+trackCurve.arcLengthDivisions = 500;
+
+// 预计算赛道长度和采样点
+const trackLength = trackCurve.getLength();
+const trackSamples = [];
+const SAMPLE_COUNT = 200;
+for (let i = 0; i < SAMPLE_COUNT; i++) {
+  trackSamples.push(trackCurve.getPointAt(i / SAMPLE_COUNT));
+}
+
+// ============================================================
+//  浮标 - 赛道边界标记
+// ============================================================
+function createBuoy(color) {
+  const group = new THREE.Group();
+  // 主体 - 圆锥 + 圆柱
+  const bodyGeo = new THREE.CylinderGeometry(0.6, 0.8, 1.5, 8);
+  const bodyMat = new THREE.MeshToonMaterial({ color: color });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  group.add(body);
+
+  // 描边
+  const edgeGeo = new THREE.CylinderGeometry(0.65, 0.85, 1.55, 8);
+  const edgeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+  const edge = new THREE.Mesh(edgeGeo, edgeMat);
+  group.add(edge);
+
+  // 顶部小球
+  const topGeo = new THREE.SphereGeometry(0.4, 8, 8);
+  const top = new THREE.Mesh(topGeo, bodyMat);
+  top.position.y = 1.0;
+  group.add(top);
+
+  return group;
+}
+
+const buoys = [];
+const BUOY_COUNT = 24;
+for (let i = 0; i < BUOY_COUNT; i++) {
+  const t = i / BUOY_COUNT;
+  const pos = trackCurve.getPointAt(t);
+  const tangent = trackCurve.getTangentAt(t);
+  // 法线（水平）
+  const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+
+  // 左右各一个浮标
+  const leftBuoy = createBuoy(0xff4444);
+  leftBuoy.position.copy(pos).add(normal.clone().multiplyScalar(TRACK_WIDTH / 2));
+  leftBuoy.position.y = 0.8;
+  scene.add(leftBuoy);
+  buoys.push({ mesh: leftBuoy, t: t, side: -1 });
+
+  const rightBuoy = createBuoy(0xffaa00);
+  rightBuoy.position.copy(pos).add(normal.clone().multiplyScalar(-TRACK_WIDTH / 2));
+  rightBuoy.position.y = 0.8;
+  scene.add(rightBuoy);
+  buoys.push({ mesh: rightBuoy, t: t, side: 1 });
+}
+
+// 起点线
+const startLineGeo = new THREE.PlaneGeometry(TRACK_WIDTH, 3);
+const startLineMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+const startLine = new THREE.Mesh(startLineGeo, startLineMat);
+const startPoint = trackCurve.getPointAt(0);
+const startTangent = trackCurve.getTangentAt(0);
+startLine.position.copy(startPoint);
+startLine.position.y = 0.1;
+startLine.rotation.x = -Math.PI / 2;
+startLine.rotation.z = Math.atan2(startTangent.x, startTangent.z);
+scene.add(startLine);
+
+// ============================================================
+//  水上摩托模型 - 程序化生成
+// ============================================================
+function createJetSki(color) {
+  const group = new THREE.Group();
+  const edgeScale = 1.04;
+
+  // 主体 - 流线型机身
+  const bodyShape = new THREE.CapsuleGeometry(0.8, 2.5, 4, 8);
+  const bodyMat = new THREE.MeshToonMaterial({ color: color });
+  const body = new THREE.Mesh(bodyShape, bodyMat);
+  body.rotation.x = Math.PI / 2;
+  body.scale.set(1, 0.5, 1.2);
+  group.add(body);
+
+  // 描边
+  const bodyEdge = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.82, 2.52, 4, 8),
+    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide })
+  );
+  bodyEdge.rotation.x = Math.PI / 2;
+  bodyEdge.scale.set(1.04, 0.52, 1.24);
+  group.add(bodyEdge);
+
+  // 座椅
+  const seatGeo = new THREE.BoxGeometry(0.7, 0.3, 1.2);
+  const seatMat = new THREE.MeshToonMaterial({ color: 0x222222 });
+  const seat = new THREE.Mesh(seatGeo, seatMat);
+  seat.position.set(0, 0.5, 0.3);
+  group.add(seat);
+
+  // 把手
+  const handleGeo = new THREE.BoxGeometry(1.0, 0.15, 0.15);
+  const handle = new THREE.Mesh(handleGeo, new THREE.MeshToonMaterial({ color: 0x333333 }));
+  handle.position.set(0, 0.7, -1.2);
+  group.add(handle);
+
+  // 喷嘴（尾部）
+  const nozzleGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+  const nozzle = new THREE.Mesh(nozzleGeo, new THREE.MeshToonMaterial({ color: 0x111111 }));
+  nozzle.rotation.x = -Math.PI / 2;
+  nozzle.position.set(0, 0, 1.8);
+  group.add(nozzle);
+
+  // 船头装饰条纹
+  const stripeGeo = new THREE.BoxGeometry(0.05, 0.1, 1.5);
+  const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const stripe1 = new THREE.Mesh(stripeGeo, stripeMat);
+  stripe1.position.set(0.81, 0.1, -0.5);
+  group.add(stripe1);
+  const stripe2 = new THREE.Mesh(stripeGeo, stripeMat);
+  stripe2.position.set(-0.81, 0.1, -0.5);
+  group.add(stripe2);
+
+  return group;
+}
+
+// ============================================================
+//  玩家与 AI 船只
+// ============================================================
+class Boat {
+  constructor(color, isPlayer = false) {
+    this.mesh = createJetSki(color);
+    this.isPlayer = isPlayer;
+    this.velocity = new THREE.Vector3();
+    this.heading = 0; // 朝向角度
+    this.speed = 0;
+    this.steer = 0;
+    this.boostEnergy = 1.0;
+    this.boosting = false;
+    this.lap = 0;
+    this.progress = 0; // 0-1 赛道进度
+    this.lastProgress = 0;
+    this.checkpoint = 0;
+    this.position = new THREE.Vector3();
+    this.tilt = 0; // 侧倾
+    this.pitch = 0; // 俯仰
+    this.bounce = 0;
+    this.collisionCooldown = 0;
+    this.aiTargetSpeed = 0;
+    this.aiSteerOffset = 0;
+    scene.add(this.mesh);
+  }
+
+  reset(startT, offsetSide = 0) {
+    const pos = trackCurve.getPointAt(startT);
+    const tangent = trackCurve.getTangentAt(startT);
+    const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    this.position.copy(pos).add(normal.multiplyScalar(offsetSide));
+    this.position.y = 0;
+    this.heading = Math.atan2(tangent.x, tangent.z);
+    this.speed = 0;
+    this.velocity.set(0, 0, 0);
+    this.lap = 0;
+    this.progress = startT;
+    this.lastProgress = startT;
+    this.boostEnergy = 1.0;
+    this.boosting = false;
+    this.tilt = 0;
+    this.pitch = 0;
+  }
+
+  getWaveHeight(x, z, time) {
+    // 与着色器一致的海浪高度计算
+    let h = 0;
+    h += Math.sin(x * 0.04 + time * 0.8) * 1.2;
+    h += Math.cos(z * 0.04 * 0.8 + time * 0.8 * 1.2) * 1.2 * 0.7;
+    h += Math.sin((x + z) * 0.04 * 0.5 + time * 0.8 * 0.6) * 1.2 * 0.5;
+    return h;
+  }
+
+  update(dt, time, input) {
+    // ---- 物理 ----
+    const maxSpeed = this.boosting ? 55 : 35;
+    const accel = 20;
+    const drag = 0.85;
+
+    if (this.isPlayer) {
+      // 玩家输入
+      if (input.forward) this.speed += accel * dt;
+      if (input.backward) this.speed -= accel * 1.5 * dt;
+      if (input.handbrake) this.speed *= (1 - 3 * dt);
+
+      // 增压
+      if (input.boost && this.boostEnergy > 0.1 && this.speed > 10) {
+        this.boosting = true;
+        this.boostEnergy -= 0.4 * dt;
+        this.speed += 15 * dt;
+      } else {
+        this.boosting = false;
+        this.boostEnergy = Math.min(1.0, this.boostEnergy + 0.15 * dt);
+      }
+
+      // 转向
+      const steerSpeed = 1.8 * (this.speed / maxSpeed);
+      if (input.left) this.heading += steerSpeed * dt;
+      if (input.right) this.heading -= steerSpeed * dt;
+      this.steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+    } else {
+      // AI 控制
+      this.updateAI(dt, time);
+    }
+
+    // 阻力
+    this.speed *= (1 - drag * dt * 0.3);
+    this.speed = Math.max(0, Math.min(this.speed, maxSpeed * 1.2));
+
+    // 速度向量
+    const dir = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
+    this.velocity.copy(dir).multiplyScalar(this.speed);
+    this.position.add(this.velocity.clone().multiplyScalar(dt));
+
+    // ---- 海浪响应 ----
+    const waveH = this.getWaveHeight(this.position.x, this.position.z, time);
+    this.position.y = waveH * 0.6;
+
+    // 俯仰和侧倾
+    const targetPitch = -this.velocity.clone().dot(new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading))) * 0.005
+                       + waveH * 0.05;
+    this.pitch += (targetPitch - this.pitch) * dt * 3;
+
+    const targetTilt = this.steer * this.speed * 0.02;
+    this.tilt += (targetTilt - this.tilt) * dt * 4;
+
+    // 应用到网格
+    this.mesh.position.copy(this.position);
+    this.mesh.rotation.y = this.heading;
+    this.mesh.rotation.z = this.tilt;
+    this.mesh.rotation.x = this.pitch;
+
+    // ---- 赛道进度更新 ----
+    this.updateProgress();
+
+    // 碰撞冷却
+    if (this.collisionCooldown > 0) this.collisionCooldown -= dt;
+  }
+
+  updateProgress() {
+    // 找最近的赛道点
+    let minDist = Infinity;
+    let nearestT = 0;
+    for (let i = 0; i < SAMPLE_COUNT; i += 2) {
+      const p = trackSamples[i];
+      const d = p.distanceToSquared(this.position);
+      if (d < minDist) {
+        minDist = d;
+        nearestT = i / SAMPLE_COUNT;
+      }
+    }
+    this.progress = nearestT;
+
+    // 圈数检测
+    if (this.lastProgress > 0.9 && this.progress < 0.1) {
+      this.lap++;
+    }
+    this.lastProgress = this.progress;
+  }
+
+  updateAI(dt, time) {
+    // 找前方赛道点
+    const lookAhead = 0.02 + this.speed * 0.0008;
+    const targetT = (this.progress + lookAhead) % 1.0;
+    const targetPos = trackCurve.getPointAt(targetT);
+    const targetTangent = trackCurve.getTangentAt(targetT);
+
+    // 目标朝向
+    const targetHeading = Math.atan2(targetTangent.x, targetTangent.z);
+    let headingDiff = targetHeading - this.heading;
+    // 归一化到 -PI ~ PI
+    while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
+    while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
+
+    // 转向
+    this.steer = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff) * 2, 1);
+    this.heading += this.steer * 1.5 * (this.speed / 35 + 0.3) * dt;
+
+    // 速度控制 - 弯道减速
+    const curveSharpness = Math.abs(headingDiff);
+    const targetSpeed = curveSharpness > 0.5 ? 22 : 38;
+    if (this.speed < targetSpeed) {
+      this.speed += 15 * dt;
+    } else {
+      this.speed -= 10 * dt;
+    }
+
+    // 偶尔增压
+    if (Math.random() < 0.005 && this.boostEnergy > 0.5 && curveSharpness < 0.2) {
+      this.boosting = true;
+    }
+    if (this.boosting) {
+      this.boostEnergy -= 0.3 * dt;
+      if (this.boostEnergy <= 0) this.boosting = false;
+    } else {
+      this.boostEnergy = Math.min(1.0, this.boostEnergy + 0.1 * dt);
+    }
+  }
+
+  applyCollision(other) {
+    if (this.collisionCooldown > 0 || other.collisionCooldown > 0) return;
+    this.collisionCooldown = 0.5;
+    other.collisionCooldown = 0.5;
+
+    // 击退
+    const dir = this.position.clone().sub(other.position).normalize();
+    this.speed *= 0.6;
+    this.position.add(dir.multiplyScalar(2));
+  }
+}
+
+// ============================================================
+//  生成船只
+// ============================================================
+const player = new Boat(0x00aaff, true);
+const aiBoats = [
+  new Boat(0xff4444, false),
+  new Boat(0xffaa00, false),
+  new Boat(0x44ff44, false),
+];
+const allBoats = [player, ...aiBoats];
+
+// ============================================================
+//  粒子系统 - 水花
+// ============================================================
+class SplashParticles {
+  constructor() {
+    this.maxParticles = 500;
+    this.positions = new Float32Array(this.maxParticles * 3);
+    this.velocities = [];
+    this.life = [];
+    this.cursor = 0;
+
+    for (let i = 0; i < this.maxParticles; i++) {
+      this.positions[i * 3] = 0;
+      this.positions[i * 3 + 1] = -100;
+      this.positions[i * 3 + 2] = 0;
+      this.velocities.push(new THREE.Vector3(0, 0, 0));
+      this.life.push(0);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+
+    const mat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.5,
+      transparent: true,
+      opacity: 0.8,
+      sizeAttenuation: true
+    });
+
+    this.points = new THREE.Points(geo, mat);
+    scene.add(this.points);
+  }
+
+  emit(pos, vel, count, power = 1) {
+    for (let i = 0; i < count; i++) {
+      const idx = this.cursor;
+      this.cursor = (this.cursor + 1) % this.maxParticles;
+
+      this.positions[idx * 3] = pos.x + (Math.random() - 0.5) * 1.5;
+      this.positions[idx * 3 + 1] = pos.y + Math.random() * 0.5;
+      this.positions[idx * 3 + 2] = pos.z + (Math.random() - 0.5) * 1.5;
+
+      this.velocities[idx].set(
+        vel.x * 0.3 + (Math.random() - 0.5) * 3 * power,
+        Math.random() * 4 * power,
+        vel.z * 0.3 + (Math.random() - 0.5) * 3 * power
+      );
+      this.life[idx] = 1.0;
+    }
+  }
+
+  update(dt) {
+    for (let i = 0; i < this.maxParticles; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt * 1.5;
+      this.velocities[i].y -= 10 * dt; // 重力
+      this.positions[i * 3] += this.velocities[i].x * dt;
+      this.positions[i * 3 + 1] += this.velocities[i].y * dt;
+      this.positions[i * 3 + 2] += this.velocities[i].z * dt;
+
+      if (this.positions[i * 3 + 1] < -2) {
+        this.life[i] = 0;
+        this.positions[i * 3 + 1] = -100;
+      }
+    }
+    this.points.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+const splashParticles = new SplashParticles();
+
+// ============================================================
+//  音效系统 - WebAudio 程序化
+// ============================================================
+class SoundManager {
+  constructor() {
+    this.ctx = null;
+    this.engineOsc = null;
+    this.engineGain = null;
+    this.noiseBuffer = null;
+  }
+
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // 引擎声音
+    this.engineOsc = this.ctx.createOscillator();
+    this.engineOsc.type = 'sawtooth';
+    this.engineOsc.frequency.value = 80;
+
+    this.engineGain = this.ctx.createGain();
+    this.engineGain.gain.value = 0;
+
+    this.engineOsc.connect(this.engineGain);
+    this.engineGain.connect(this.ctx.destination);
+    this.engineOsc.start();
+
+    // 噪音缓冲（水花）
+    const bufferSize = this.ctx.sampleRate * 1;
+    this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = this.noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  }
+
+  updateEngine(speed, boosting) {
+    if (!this.ctx) return;
+    const freq = 60 + speed * 4 + (boosting ? 50 : 0);
+    this.engineOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.1);
+    this.engineGain.gain.setTargetAtTime(speed / 200, this.ctx.currentTime, 0.1);
+  }
+
+  playSplash(power = 1) {
+    if (!this.ctx) return;
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.noiseBuffer;
+    const gain = this.ctx.createGain();
+    gain.gain.value = Math.min(0.3 * power, 0.5);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 1000;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    source.start();
+    source.stop(0.5);
+  }
+
+  playCountdown(final = false) {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = final ? 880 : 440;
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.2;
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(0.3);
+  }
+}
+
+const soundManager = new SoundManager();
+
+// ============================================================
+//  输入系统
+// ============================================================
+const input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
+
+window.addEventListener('keydown', (e) => {
+  switch (e.code) {
+    case 'KeyW': case 'ArrowUp': input.forward = true; break;
+    case 'KeyS': case 'ArrowDown': input.backward = true; break;
+    case 'KeyA': case 'ArrowLeft': input.left = true; break;
+    case 'KeyD': case 'ArrowRight': input.right = true; break;
+    case 'ShiftLeft': case 'ShiftRight': input.boost = true; break;
+    case 'Space': input.handbrake = true; break;
+  }
+});
+window.addEventListener('keyup', (e) => {
+  switch (e.code) {
+    case 'KeyW': case 'ArrowUp': input.forward = false; break;
+    case 'KeyS': case 'ArrowDown': input.backward = false; break;
+    case 'KeyA': case 'ArrowLeft': input.left = false; break;
+    case 'KeyD': case 'ArrowRight': input.right = false; break;
+    case 'ShiftLeft': case 'ShiftRight': input.boost = false; break;
+    case 'Space': input.handbrake = false; break;
+  }
+});
+
+// ============================================================
+//  相机系统
+// ============================================================
+class FollowCamera {
+  constructor() {
+    this.position = new THREE.Vector3(0, 8, -15);
+    this.lookTarget = new THREE.Vector3();
+    this.shake = 0;
+  }
+
+  update(target, dt, time) {
+    // 目标位置 - 船后方上方
+    const offset = new THREE.Vector3(
+      Math.sin(target.heading) * -10,
+      6 + target.speed * 0.05,
+      Math.cos(target.heading) * -10
+    );
+    const desiredPos = target.position.clone().add(offset);
+
+    // 平滑跟随
+    this.position.lerp(desiredPos, 1 - Math.pow(0.001, dt));
+
+    // 抖动
+    if (target.boosting || target.pitch > 0.15) {
+      this.shake = 0.3;
+    }
+    this.shake *= 0.9;
+    const shakeOffset = new THREE.Vector3(
+      (Math.random() - 0.5) * this.shake,
+      (Math.random() - 0.5) * this.shake,
+      (Math.random() - 0.5) * this.shake
+    );
+
+    camera.position.copy(this.position).add(shakeOffset);
+
+    // 看向船前方
+    const lookAhead = new THREE.Vector3(
+      target.position.x + Math.sin(target.heading) * 5,
+      target.position.y + 1,
+      target.position.z + Math.cos(target.heading) * 5
+    );
+    this.lookTarget.lerp(lookAhead, 1 - Math.pow(0.001, dt));
+    camera.lookAt(this.lookTarget);
+
+    // 相机倾斜跟随
+    camera.up.set(
+      Math.sin(target.tilt) * 0.3,
+      1,
+      0
+    );
+  }
+}
+
+const followCamera = new FollowCamera();
+
+// ============================================================
+//  HUD - 小地图绘制
+// ============================================================
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
+
+function drawMinimap() {
+  const w = minimapCanvas.width;
+  const h = minimapCanvas.height;
+  minimapCtx.clearRect(0, 0, w, h);
+
+  // 背景
+  minimapCtx.fillStyle = '#e8f4f8';
+  minimapCtx.fillRect(0, 0, w, h);
+
+  // 赛道
+  minimapCtx.strokeStyle = '#333';
+  minimapCtx.lineWidth = TRACK_WIDTH / 8;
+  minimapCtx.beginPath();
+  for (let i = 0; i <= SAMPLE_COUNT; i++) {
+    const p = trackSamples[i % SAMPLE_COUNT];
+    const x = (p.x + 100) / 200 * w;
+    const y = (p.z + 100) / 200 * h;
+    if (i === 0) minimapCtx.moveTo(x, y);
+    else minimapCtx.lineTo(x, y);
+  }
+  minimapCtx.stroke();
+
+  // 船只
+  allBoats.forEach((boat, idx) => {
+    const x = (boat.position.x + 100) / 200 * w;
+    const y = (boat.position.z + 100) / 200 * h;
+    minimapCtx.fillStyle = boat.isPlayer ? '#0066ff' : ['#ff4444', '#ffaa00', '#44ff44'][idx - 1] || '#ff0000';
+    minimapCtx.beginPath();
+    minimapCtx.arc(x, y, 4, 0, Math.PI * 2);
+    minimapCtx.fill();
+    minimapCtx.strokeStyle = '#000';
+    minimapCtx.lineWidth = 1;
+    minimapCtx.stroke();
+  });
+}
+
+// ============================================================
+//  排名计算
+// ============================================================
+function getRankings() {
+  // 按总进度排序：lap 大的在前，同 lap 内 progress 大的在前
+  return [...allBoats].sort((a, b) => {
+    if (a.lap !== b.lap) return b.lap - a.lap;
+    return b.progress - a.progress;
+  });
+}
+
+function updateHUD() {
+  // 速度
+  const speedKmh = Math.round(player.speed * 3.6);
+  document.getElementById('speed-value').textContent = speedKmh;
+
+  // 增压条
+  document.getElementById('boost-bar').style.width = (player.boostEnergy * 100) + '%';
+
+  // 圈数
+  document.getElementById('lap-value').textContent = `${Math.min(player.lap + 1, TOTAL_LAPS)} / ${TOTAL_LAPS}`;
+
+  // 排名
+  const rankings = getRankings();
+  const rankList = document.getElementById('rank-list');
+  rankList.innerHTML = '';
+  rankings.forEach((boat, idx) => {
+    const row = document.createElement('div');
+    row.className = 'rank-row' + (boat.isPlayer ? ' me' : '');
+    const name = boat.isPlayer ? '你' : ['红队', '橙队', '绿队'][idx === 0 ? 0 : idx === 1 ? 1 : 2] || `AI${idx}`;
+    row.innerHTML = `<span>${idx + 1}. ${name}</span><span>L${Math.min(boat.lap + 1, TOTAL_LAPS)}</span>`;
+    rankList.appendChild(row);
+  });
+
+  drawMinimap();
+}
+
+// ============================================================
+//  游戏状态
+// ============================================================
+let gameState = 'start'; // start, countdown, racing, finished
+let countdownValue = 3;
+let countdownTimer = 0;
+let raceTime = 0;
+let raceStartTime = 0;
+
+function startRace() {
+  soundManager.init();
+  document.getElementById('start-overlay').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+
+  // 重置船只
+  player.reset(0.02, -4);
+  aiBoats[0].reset(0.02, 0);
+  aiBoats[1].reset(0.02, 4);
+  aiBoats[2].reset(0.01, 0);
+
+  gameState = 'countdown';
+  countdownValue = 3;
+  countdownTimer = 0;
+  document.getElementById('countdown-overlay').classList.remove('hidden');
+  document.getElementById('countdown-number').textContent = countdownValue;
+  soundManager.playCountdown();
+}
+
+function finishRace() {
+  gameState = 'finished';
+  document.getElementById('finish-overlay').classList.remove('hidden');
+
+  const rankings = getRankings();
+  const playerRank = rankings.indexOf(player) + 1;
+  const minutes = Math.floor(raceTime / 60);
+  const seconds = (raceTime % 60).toFixed(1);
+
+  document.getElementById('finish-time').textContent = `用时: ${minutes}分${seconds}秒`;
+  document.getElementById('final-rank').textContent = `最终排名: 第 ${playerRank} 名 / 4`;
+}
+
+document.getElementById('start-btn').addEventListener('click', startRace);
+document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('finish-overlay').classList.add('hidden');
+  startRace();
+});
+
+// ============================================================
+//  主循环
+// ============================================================
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.elapsedTime;
+
+  // 海洋时间
+  oceanUniforms.uTime.value = time;
+
+  if (gameState === 'countdown') {
+    countdownTimer += dt;
+    if (countdownTimer >= 1) {
+      countdownTimer = 0;
+      countdownValue--;
+      if (countdownValue > 0) {
+        document.getElementById('countdown-number').textContent = countdownValue;
+        document.getElementById('countdown-number').style.animation = 'none';
+        void document.getElementById('countdown-number').offsetWidth;
+        document.getElementById('countdown-number').style.animation = '';
+        soundManager.playCountdown();
+      } else {
+        document.getElementById('countdown-number').textContent = 'GO!';
+        soundManager.playCountdown(true);
+        setTimeout(() => {
+          document.getElementById('countdown-overlay').classList.add('hidden');
+        }, 800);
+        gameState = 'racing';
+        raceStartTime = time;
+      }
+    }
+  }
+
+  if (gameState === 'racing' || gameState === 'countdown') {
+    raceTime = time - raceStartTime;
+
+    // 更新所有船只
+    const canMove = gameState === 'racing';
+    const playerInput = canMove ? input : { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
+
+    player.update(dt, time, playerInput);
+    aiBoats.forEach(boat => boat.update(dt, time, {}));
+
+    // 碰撞检测 - 船与船
+    for (let i = 0; i < allBoats.length; i++) {
+      for (let j = i + 1; j < allBoats.length; j++) {
+        const a = allBoats[i];
+        const b = allBoats[j];
+        if (a.position.distanceTo(b.position) < 2.5) {
+          a.applyCollision(b);
+          b.applyCollision(a);
+          soundManager.playSplash(0.5);
+        }
+      }
+    }
+
+    // 水花粒子 - 玩家
+    if (player.speed > 5) {
+      const rearPos = player.position.clone().add(
+        new THREE.Vector3(Math.sin(player.heading) * 2, 0, Math.cos(player.heading) * 2)
+      );
+      const splashCount = player.boosting ? 15 : 5;
+      const power = player.boosting ? 2 : 1;
+      splashParticles.emit(rearPos, player.velocity, splashCount, power);
+    }
+
+    // 水花粒子 - AI
+    aiBoats.forEach(boat => {
+      if (boat.speed > 5) {
+        const rearPos = boat.position.clone().add(
+          new THREE.Vector3(Math.sin(boat.heading) * 2, 0, Math.cos(boat.heading) * 2)
+        );
+        splashParticles.emit(rearPos, boat.velocity, 3, 0.8);
+      }
+    });
+
+    splashParticles.update(dt);
+
+    // 音效
+    soundManager.updateEngine(player.speed, player.boosting);
+
+    // 相机
+    followCamera.update(player, dt, time);
+
+    // HUD
+    updateHUD();
+
+    // 比赛结束检测
+    if (player.lap >= TOTAL_LAPS) {
+      finishRace();
+    }
+  }
+
+  // 浮标轻微浮动
+  buoys.forEach(buoy => {
+    buoy.mesh.position.y = 0.8 + Math.sin(time * 1.5 + buoy.t * 10) * 0.15;
+  });
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+} // initGame
+</script>
+</body>
+</html>
